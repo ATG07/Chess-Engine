@@ -123,6 +123,13 @@ enum Rank : std::uint8_t {
 constexpr Bitboard BB_RANK_1 = 0x0000'0000'0000'00FFULL;
 constexpr Bitboard BB_RANK_8 = 0xFF00'0000'0000'0000ULL;
 
+enum PinDir : std::uint8_t {
+    HORIZONTAL,
+    VERTICAL,
+    DIAGONAL_PRINCIPAL,
+    DIAGONAL_MINOR,
+    NO_PIN
+};
 
 constexpr File fileof(Square sq){
     return static_cast<File>(sq & 7);

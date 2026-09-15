@@ -384,10 +384,12 @@ void Board::setFEN(std::string_view fen) {
         throw std::invalid_argument("Fullmove number must be positive");
 }
 
+void Board::setPins(){
+    // TO DO
+}
+
 void Board::generateMoves(MoveList&) const {
     MoveList pseudo;
-
-
 }
 
 void Board::makeMove(Move) {}

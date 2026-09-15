@@ -117,6 +117,8 @@ private:
     Bitboard occupancyAll_ = 0;
 
     std::array<Piece, NUM_SQUARE> board_{}; //mailbox
+    std::array<Piece, NUM_SQUARE> pinsWhite_{}; //mailbox
+    std::array<Piece, NUM_SQUARE> pinsBlack_{}; //mailbox
 
     Colour sideToMove_ = WHITE;
 
@@ -148,6 +150,8 @@ public:
 
     void setStartingPosition();
     void setFEN(std::string_view fen);
+
+    void setPins();
 
     void generateMoves(MoveList& moves) const;
 
