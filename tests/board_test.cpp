@@ -86,19 +86,24 @@ TEST(PackedStateTest, MasksUnknownCastlingBitsAndOmitsUnusedEpFile) {
 
 TEST(MoveListTest, SupportsInsertionIterationIndexingAndClear) {
     MoveList moves;
-    moves.add(11);
-    moves.add(22);
-    moves.add(33);
+    const Move first = encodeMove(E2, E4);
+    const Move second = encodeMove(G1, F3);
+    const Move third = encodeMove(A7, A8, PROMOTION, QUEEN);
+    moves.add(first);
+    moves.add(second);
+    moves.add(third);
 
     ASSERT_EQ(moves.size, 3);
-    EXPECT_EQ(moves[1], 22);
-    moves[1] = 44;
+    EXPECT_EQ(moves[1], second);
+    moves[1] = encodeMove(B1, C3);
 
     const MoveList& constMoves = moves;
-    EXPECT_EQ(constMoves[1], 44);
+    EXPECT_EQ(moveFrom(constMoves[1]), B1);
+    EXPECT_EQ(moveTo(constMoves[1]), C3);
     EXPECT_EQ(std::distance(constMoves.begin(), constMoves.end()), 3);
     const std::array<Move, 3> actual{moves[0], moves[1], moves[2]};
-    const std::array<Move, 3> expected{11, 44, 33};
+    const std::array<Move, 3> expected{
+        first, encodeMove(B1, C3), third};
     EXPECT_EQ(actual, expected);
 
     moves.clear();
@@ -197,6 +202,10 @@ TEST(BoardTest, EveryGeneratedStartingMoveCanBeUndoneExactly) {
 
     for (const Move move : moves) {
         SCOPED_TRACE(static_cast<unsigned>(move));
+        EXPECT_EQ(moveType(move), NORMAL);
+        EXPECT_NE(moveFrom(move), moveTo(move));
+        EXPECT_NE(board.pieceAt(moveFrom(move)), NO_PIECE);
+        EXPECT_EQ(board.pieceAt(moveTo(move)), NO_PIECE);
         board.makeMove(move);
         board.undoMove(move);
         expectSameState(initial, board);
@@ -210,46 +219,37 @@ TEST(BoardTest, DoublePawnPushUpdatesTurnAndEnPassantState) {
 
     MoveList moves;
     board.generateMoves(moves);
+    const Move e2e4 = encodeMove(E2, E4);
     bool foundE2E4 = false;
+    for (const Move move : moves)
+        foundE2E4 |= move == e2e4;
 
-    for (const Move move : moves) {
-        board.makeMove(move);
-        const bool isE2E4 = board.pieceAt(E2) == NO_PIECE &&
-                            board.pieceAt(E4) == W_PAWN;
-        if (isE2E4) {
-            foundE2E4 = true;
-            EXPECT_EQ(board.sideToMove(), BLACK);
-            EXPECT_TRUE(board.hasEnPassant());
-            EXPECT_EQ(board.enPassantFile(), FILE_E);
-            EXPECT_EQ(board.enPassantSquare(), E3);
-            EXPECT_EQ(board.halfmoveClock(), 0);
-            EXPECT_EQ(board.fullmoveNumber(), 1);
-        }
-        board.undoMove(move);
-        expectSameState(initial, board);
-        if (isE2E4) {
-            break;
-        }
-    }
-
-    EXPECT_TRUE(foundE2E4);
+    ASSERT_TRUE(foundE2E4);
+    board.makeMove(e2e4);
+    EXPECT_EQ(board.pieceAt(E2), NO_PIECE);
+    EXPECT_EQ(board.pieceAt(E4), W_PAWN);
+    EXPECT_EQ(board.sideToMove(), BLACK);
+    EXPECT_TRUE(board.hasEnPassant());
+    EXPECT_EQ(board.enPassantFile(), FILE_E);
+    EXPECT_EQ(board.enPassantSquare(), E3);
+    EXPECT_EQ(board.halfmoveClock(), 0);
+    EXPECT_EQ(board.fullmoveNumber(), 1);
+    board.undoMove(e2e4);
+    expectSameState(initial, board);
 }
 
 TEST(BoardTest, EnPassantThatExposesOwnKingIsNotGenerated) {
     Board board;
     // Moving f5xg6 e.p. would remove both rank-five blockers and expose the
     // white king on e5 to the rook on h5.
-    board.setFEN("8/8/8/4KPpr/8/8/8/8 w - g6 0 1");
+    board.setFEN("k7/8/8/4KPpr/8/8/8/8 w - g6 0 1");
 
     MoveList moves;
     board.generateMoves(moves);
+    ASSERT_GT(moves.size, 0);
+    const Move illegal = encodeMove(F5, G6, EN_PASSANT);
     for (const Move move : moves) {
-        board.makeMove(move);
-        const bool madeIllegalEnPassant = board.pieceAt(F5) == NO_PIECE &&
-                                          board.pieceAt(G5) == NO_PIECE &&
-                                          board.pieceAt(G6) == W_PAWN;
-        board.undoMove(move);
-        EXPECT_FALSE(madeIllegalEnPassant);
+        EXPECT_NE(move, illegal);
     }
 }
 
@@ -261,19 +261,21 @@ TEST(BoardTest, CannotCastleThroughAnAttackedSquare) {
 
     MoveList moves;
     board.generateMoves(moves);
+    const Move kingside = encodeMove(E1, H1, CASTLING);
+    const Move queenside = encodeMove(E1, A1, CASTLING);
     bool foundKingsideCastle = false;
     bool foundQueensideCastle = false;
     for (const Move move : moves) {
-        board.makeMove(move);
-        foundKingsideCastle |= board.pieceAt(G1) == W_KING &&
-                               board.pieceAt(F1) == W_ROOK;
-        foundQueensideCastle |= board.pieceAt(C1) == W_KING &&
-                                board.pieceAt(D1) == W_ROOK;
-        board.undoMove(move);
+        foundKingsideCastle |= move == kingside;
+        foundQueensideCastle |= move == queenside;
     }
 
     EXPECT_FALSE(foundKingsideCastle);
-    EXPECT_TRUE(foundQueensideCastle);
+    ASSERT_TRUE(foundQueensideCastle);
+    board.makeMove(queenside);
+    EXPECT_EQ(board.pieceAt(C1), W_KING);
+    EXPECT_EQ(board.pieceAt(D1), W_ROOK);
+    board.undoMove(queenside);
 }
 
 TEST(BoardTest, GeneratesAllFourPromotionChoices) {
@@ -282,26 +284,20 @@ TEST(BoardTest, GeneratesAllFourPromotionChoices) {
 
     MoveList moves;
     board.generateMoves(moves);
-    std::array<bool, NUM_PIECE_TYPE> promotedTo{};
-    int promotionCount = 0;
+    for (int piece = KNIGHT; piece <= QUEEN; ++piece) {
+        const Move promotion = encodeMove(A7, A8, PROMOTION,
+                                          static_cast<PieceType>(piece));
+        bool found = false;
+        for (const Move move : moves)
+            found |= move == promotion;
 
-    for (const Move move : moves) {
-        board.makeMove(move);
-        if (board.pieceAt(A7) == NO_PIECE) {
-            const Piece promotedPiece = board.pieceAt(A8);
-            ASSERT_GE(promotedPiece, W_KNIGHT);
-            ASSERT_LE(promotedPiece, W_QUEEN);
-            promotedTo[promotedPiece] = true;
-            ++promotionCount;
-        }
-        board.undoMove(move);
+        ASSERT_TRUE(found) << "promotion to " << piece;
+        board.makeMove(promotion);
+        EXPECT_EQ(board.pieceAt(A7), NO_PIECE);
+        EXPECT_EQ(board.pieceAt(A8), static_cast<Piece>(piece));
+        board.undoMove(promotion);
+        EXPECT_EQ(board.pieceAt(A7), W_PAWN);
     }
-
-    EXPECT_EQ(promotionCount, 4);
-    EXPECT_TRUE(promotedTo[KNIGHT]);
-    EXPECT_TRUE(promotedTo[BISHOP]);
-    EXPECT_TRUE(promotedTo[ROOK]);
-    EXPECT_TRUE(promotedTo[QUEEN]);
 }
 
 TEST(BoardTest, HashTracksPositionAndIsRestoredByUndo) {

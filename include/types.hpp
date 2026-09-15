@@ -54,6 +54,45 @@ enum Square : std::uint8_t {
     NO_SQUARE = NUM_SQUARE
 };
 
+// 16-bit move: to [0..5], from [6..11], promotion [12..13], type [14..15].
+constexpr int MOVE_FROM_SHIFT = 6;
+constexpr int MOVE_PROMOTION_SHIFT = 12;
+constexpr int MOVE_TYPE_SHIFT = 14;
+constexpr Move MOVE_SQUARE_MASK = 0x3F;
+constexpr Move MOVE_PROMOTION_MASK = 0x3;
+constexpr Move MOVE_TYPE_MASK = MOVE_PROMOTION_MASK << MOVE_TYPE_SHIFT;
+
+enum MoveType : Move {
+    NORMAL,
+    PROMOTION = 1 << MOVE_TYPE_SHIFT,
+    EN_PASSANT = 2 << MOVE_TYPE_SHIFT,
+    CASTLING = 3 << MOVE_TYPE_SHIFT
+};
+
+constexpr Move encodeMove(Square from, Square to, MoveType type = NORMAL,
+                          PieceType promotion = KNIGHT) {
+    return static_cast<Move>(type |
+                             ((promotion - KNIGHT) << MOVE_PROMOTION_SHIFT) |
+                             (from << MOVE_FROM_SHIFT) | to);
+}
+
+constexpr Square moveFrom(Move move) {
+    return static_cast<Square>((move >> MOVE_FROM_SHIFT) & MOVE_SQUARE_MASK);
+}
+
+constexpr Square moveTo(Move move) {
+    return static_cast<Square>(move & MOVE_SQUARE_MASK);
+}
+
+constexpr MoveType moveType(Move move) {
+    return static_cast<MoveType>(move & MOVE_TYPE_MASK);
+}
+
+constexpr PieceType promotionType(Move move) {
+    return static_cast<PieceType>(
+        ((move >> MOVE_PROMOTION_SHIFT) & MOVE_PROMOTION_MASK) + KNIGHT);
+}
+
 enum File : std::uint8_t {
     FILE_A,
     FILE_B,
@@ -66,6 +105,9 @@ enum File : std::uint8_t {
     NUM_FILE
 };
 
+constexpr Bitboard BB_FILE_A = 0x0101'0101'0101'0101ULL;
+constexpr Bitboard BB_FILE_H = 0x8080'8080'8080'8080ULL;
+
 enum Rank : std::uint8_t {
     RANK_1,
     RANK_2,
@@ -77,6 +119,10 @@ enum Rank : std::uint8_t {
     RANK_8,
     NUM_RANK
 };
+
+constexpr Bitboard BB_RANK_1 = 0x0000'0000'0000'00FFULL;
+constexpr Bitboard BB_RANK_8 = 0xFF00'0000'0000'0000ULL;
+
 
 constexpr File fileof(Square sq){
     return static_cast<File>(sq & 7);

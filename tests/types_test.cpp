@@ -20,6 +20,29 @@ TEST(TypesTest, OppositeColourIsAnInvolution) {
     EXPECT_EQ(~~BLACK, BLACK);
 }
 
+TEST(TypesTest, MoveEncodingRoundTripsNormalAndSpecialMoves) {
+    const Move normal = encodeMove(E2, E4);
+    EXPECT_EQ(normal, static_cast<Move>((E2 << 6) | E4));
+    EXPECT_EQ(moveFrom(normal), E2);
+    EXPECT_EQ(moveTo(normal), E4);
+    EXPECT_EQ(moveType(normal), NORMAL);
+
+    for (int piece = KNIGHT; piece <= QUEEN; ++piece) {
+        const Move promotion = encodeMove(A7, A8, PROMOTION,
+                                          static_cast<PieceType>(piece));
+        EXPECT_EQ(moveFrom(promotion), A7);
+        EXPECT_EQ(moveTo(promotion), A8);
+        EXPECT_EQ(moveType(promotion), PROMOTION);
+        EXPECT_EQ(promotionType(promotion), static_cast<PieceType>(piece));
+    }
+
+    EXPECT_EQ(moveType(encodeMove(E5, D6, EN_PASSANT)), EN_PASSANT);
+    const Move castling = encodeMove(E1, H1, CASTLING);
+    EXPECT_EQ(moveType(castling), CASTLING);
+    EXPECT_EQ(moveFrom(castling), E1);
+    EXPECT_EQ(moveTo(castling), H1);  // Stockfish stores the rook square.
+}
+
 TEST(TypesTest, PieceValuesAreGroupedByColourAndType) {
     for (int type = PAWN; type < NUM_PIECE_TYPE; ++type) {
         EXPECT_EQ(static_cast<int>(W_PAWN) + type, type);

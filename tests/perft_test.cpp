@@ -7,6 +7,13 @@
 
 namespace {
 
+bool containsMove(const MoveList& moves, Move expected) {
+    for (const Move move : moves)
+        if (move == expected)
+            return true;
+    return false;
+}
+
 std::uint64_t perft(Board& board, int depth) {
     if (depth == 0) {
         return 1;
@@ -36,6 +43,33 @@ void expectPerft(std::string_view fen, int depth, std::uint64_t nodes) {
 
 }  // namespace
 
+TEST(PerftTest, RootSpecialMovesUseStockfishEncoding) {
+    Board board;
+    MoveList moves;
+
+    board.setFEN("r3k2r/8/8/8/8/8/8/R3K2R w KQkq - 0 1");
+    board.generateMoves(moves);
+    EXPECT_TRUE(containsMove(moves, encodeMove(E1, H1, CASTLING)));
+    EXPECT_TRUE(containsMove(moves, encodeMove(E1, A1, CASTLING)));
+
+    moves.clear();
+    board.setFEN("4k3/8/8/3pP3/8/8/8/4K3 w - d6 0 1");
+    board.generateMoves(moves);
+    EXPECT_TRUE(containsMove(moves, encodeMove(E5, D6, EN_PASSANT)));
+
+    moves.clear();
+    board.setFEN("4k3/8/8/8/3Pp3/8/8/4K3 b - d3 0 1");
+    board.generateMoves(moves);
+    EXPECT_TRUE(containsMove(moves, encodeMove(E4, D3, EN_PASSANT)));
+
+    moves.clear();
+    board.setFEN("7k/P7/8/8/8/8/8/7K w - - 0 1");
+    board.generateMoves(moves);
+    for (int piece = KNIGHT; piece <= QUEEN; ++piece)
+        EXPECT_TRUE(containsMove(moves, encodeMove(
+            A7, A8, PROMOTION, static_cast<PieceType>(piece))));
+}
+
 TEST(PerftTest, StartingPosition) {
     constexpr std::string_view start =
         "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1";
@@ -49,7 +83,7 @@ TEST(PerftTest, StartingPosition) {
 
 TEST(PerftTest, KiwipeteExercisesCastlingAndPins) {
     constexpr std::string_view kiwipete =
-        "r3k2r/p1ppqpb1/bn2pnp1/2pP4/1p2P3/2N2N2/PPQBBPPP/R3K2R "
+        "r3k2r/p1ppqpb1/bn2pnp1/3PN3/1p2P3/2N2Q1p/PPPBBPPP/R3K2R "
         "w KQkq - 0 1";
 
     expectPerft(kiwipete, 1, 48);
@@ -80,7 +114,7 @@ TEST(PerftTest, AsymmetricCastlingPositionExercisesPromotionsAndChecks) {
 
 TEST(PerftTest, PromotionPositionExercisesDiscoveredChecks) {
     constexpr std::string_view position =
-        "rnbq1k1r/pp1Pbppp/2p2n2/8/2B5/8/PPP1NPPP/RNBQK2R "
+        "rnbq1k1r/pp1Pbppp/2p5/8/2B5/8/PPP1NnPP/RNBQK2R "
         "w KQ - 1 8";
 
     expectPerft(position, 1, 44);
@@ -91,7 +125,7 @@ TEST(PerftTest, PromotionPositionExercisesDiscoveredChecks) {
 
 TEST(PerftTest, TacticalMiddlegameExercisesPinsAndCheckEvasions) {
     constexpr std::string_view position =
-        "r4rk1/1pp1qppp/p1np1n2/2b1p3/2B1P3/P1NP1N2/1PP2PPP/R2Q1RK1 "
+        "r4rk1/1pp1qppp/p1np1n2/2b1p1B1/2B1P1b1/P1NP1N2/1PP1QPPP/R4RK1 "
         "w - - 0 10";
 
     expectPerft(position, 1, 46);
