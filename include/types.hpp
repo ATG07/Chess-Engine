@@ -78,6 +78,14 @@ enum Rank : std::uint8_t {
     NUM_RANK
 };
 
+enum PinDir : std::uint8_t {
+    HORIZONTAL,
+    VERTICAL,
+    DIAGONAL_PRINCIPAL,
+    DIAGONAL_MINOR,
+    NO_PIN
+};
+
 constexpr File fileof(Square sq){
     return static_cast<File>(sq & 7);
 }

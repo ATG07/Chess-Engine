@@ -207,6 +207,10 @@ void Board::setFEN(std::string_view fen) {
         throw std::invalid_argument("Fullmove number must be positive");
 }
 
+void Board::setPins(){
+    // TO DO
+}
+
 void Board::generateMoves(MoveList&) const {}
 
 void Board::makeMove(Move) {}
