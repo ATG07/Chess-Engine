@@ -116,9 +116,13 @@ private:
     Bitboard occupancy_[NUM_COLOUR]{};
     Bitboard occupancyAll_ = 0;
 
-    std::array<Piece, NUM_SQUARE> board_{}; //mailbox
-    std::array<Piece, NUM_SQUARE> pinsWhite_{}; //mailbox
-    std::array<Piece, NUM_SQUARE> pinsBlack_{}; //mailbox
+    std::array<Piece, NUM_SQUARE> board_{}; // mailbox
+
+    // Cached for each position, as in Stockfish's king-blocker/check state.
+    // A blocker may be either colour; pinned pieces are blockersForKing_[c] & occupancy_[c].
+    Bitboard blockersForKing_[NUM_COLOUR]{};
+    Bitboard pinners_[NUM_COLOUR]{};
+    Bitboard checkers_ = 0; // attackers of sideToMove_'s king
 
     Colour sideToMove_ = WHITE;
 
@@ -137,6 +141,8 @@ private:
     void movePiece(Piece piece, Square from, Square to);
 
     void updateOccupancy();
+    void updateSliderBlockers(Colour colour);
+    bool legalCandidate(Move move) const;
 
     void generatePawnMoves(MoveList& moves) const;
     void generateKnightMoves(MoveList& moves) const;

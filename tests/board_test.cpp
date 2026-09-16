@@ -191,6 +191,54 @@ TEST(BoardTest, AttackDetectionHandlesLeapersAndSliders) {
     EXPECT_TRUE(board.inCheck());
 }
 
+TEST(BoardAttackTest, PawnsAttackDiagonallyWithoutWrappingFiles) {
+    Board board;
+    board.setFEN("7k/8/8/8/8/8/P7/4K3 w - - 0 1");
+
+    EXPECT_TRUE(board.isSquareAttacked(B3, WHITE));
+    EXPECT_FALSE(board.isSquareAttacked(A3, WHITE));
+    EXPECT_FALSE(board.isSquareAttacked(H2, WHITE));
+
+    board.setFEN("4k3/p7/8/8/8/8/8/7K b - - 0 1");
+
+    EXPECT_TRUE(board.isSquareAttacked(B6, BLACK));
+    EXPECT_FALSE(board.isSquareAttacked(A6, BLACK));
+    EXPECT_FALSE(board.isSquareAttacked(H7, BLACK));
+}
+
+TEST(BoardAttackTest, KingAttacksOnlyAdjacentSquaresAtBoardEdge) {
+    Board board;
+    board.setFEN("k7/8/8/8/8/8/8/7K w - - 0 1");
+
+    EXPECT_TRUE(board.isSquareAttacked(A7, BLACK));
+    EXPECT_TRUE(board.isSquareAttacked(B7, BLACK));
+    EXPECT_TRUE(board.isSquareAttacked(B8, BLACK));
+    EXPECT_FALSE(board.isSquareAttacked(C7, BLACK));
+    EXPECT_FALSE(board.isSquareAttacked(H7, BLACK));
+}
+
+TEST(BoardAttackTest, DetectsDistantSlidersAndStopsAtFirstBlocker) {
+    Board board;
+    board.setFEN("k3r3/8/8/8/8/8/8/K7 w - - 0 1");
+    EXPECT_TRUE(board.isSquareAttacked(E1, BLACK));
+
+    board.setFEN("k3r3/8/8/8/4P3/8/8/K7 w - - 0 1");
+    EXPECT_FALSE(board.isSquareAttacked(E1, BLACK));
+
+    board.setFEN("k6b/8/8/8/8/8/8/K7 w - - 0 1");
+    EXPECT_TRUE(board.isSquareAttacked(A1, BLACK));
+
+    board.setFEN("k2q4/8/8/8/8/8/8/K7 w - - 0 1");
+    EXPECT_TRUE(board.isSquareAttacked(D1, BLACK));
+}
+
+TEST(BoardAttackTest, TreatsDefendingKingAsTransparentAsDocumented) {
+    Board board;
+    board.setFEN("k3r3/8/8/8/4K3/8/8/8 w - - 0 1");
+
+    EXPECT_TRUE(board.isSquareAttacked(E1, BLACK));
+}
+
 TEST(BoardTest, EveryGeneratedStartingMoveCanBeUndoneExactly) {
     Board board;
     board.setStartingPosition();

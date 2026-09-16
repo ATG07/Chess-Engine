@@ -254,7 +254,9 @@ void Board::generateQueenMoves(MoveList& moves) const {
     }
 }
 
-void Board::generateKingMoves(MoveList&) const {}
+void Board::generateKingMoves(MoveList&) const {
+
+}
 
 void Board::setStartingPosition() {
     setFEN(STARTING_FEN);
@@ -384,24 +386,108 @@ void Board::setFEN(std::string_view fen) {
         throw std::invalid_argument("Fullmove number must be positive");
 }
 
-void Board::setPins(){
-    // TO DO
+void Board::updateSliderBlockers(Colour colour) {
+    // TODO: From colour's king, find aligned enemy rook/queen and bishop/queen "snipers".
+    // Count occupied squares between each sniper and king. With exactly one blocker,
+    // mark blockersForKing_[colour]; if it is colour's piece, mark pinners_[opponent].
+}
+
+void Board::setPins() {
+    // TODO: Rebuild both colours' slider blockers/pinners and the current side's
+    // checkers. Refresh this cache whenever FEN, makeMove, or undoMove changes the board.
+    // Stockfish keeps this information in its per-position state.
+}
+
+bool Board::legalCandidate(Move) const {
+    // TODO: Test exceptional pseudo-legal moves: king destinations after removing
+    // the king from its origin, castling transit squares, and en passant with the
+    // captured pawn removed (which may expose a rook/bishop line).
+    // For pinned non-king pieces, permit only moves along the king-pinner line.
+    return false; // Placeholder; generateMoves does not call this yet.
 }
 
 void Board::generateMoves(MoveList&) const {
     MoveList pseudo;
+    // TODO: Generate ordinary candidates unless in check. In single check, keep
+    // captures of the checker or moves onto its blocking ray; in double check,
+    // generate only king moves. Stockfish filters king, pinned-piece and en passant
+    // candidates through its legal() check; other pseudo-legal moves are accepted.
 }
 
-void Board::makeMove(Move) {}
+void Board::makeMove(Move) {
+    // TODO: Update pieces, mailbox, occupancy and reversible state, then refresh
+    // checkers/blockers/pinners for the resulting position.
+}
 
-void Board::undoMove(Move) {}
+void Board::undoMove(Move) {
+    // TODO: Restore the previous position and its cached check/pin information,
+    // either from history or by rebuilding it.
+}
 
 bool Board::inCheck() const {
+    // TODO: Once setPins maintains checkers_, this is simply checkers_ != 0.
     return false;
 }
 
-bool Board::isSquareAttacked(Square, Colour) const {
-    return false;
+// IGNORES DEFENDING KING AS DEFENDING KING IS NEVER AN EFFECTIVE BLOCKER
+// CAN BE REFACTORED LATOR, OR TAKEN IN THROUGH A TEMPLATE IF REQUIRED
+// IGNORES EN PASSANT
+// UNDEFINED BEHAVIOUR WHEN SQUARE IS OCCUPIED BY ATTACKING SIDE PIECE
+bool Board::isSquareAttacked(Square s, Colour attackingSideColour) const {
+    int file = static_cast<int>(s) % NUM_FILE;
+    int rank = static_cast<int>(s) / NUM_FILE;
+    Bitboard BB_Sqr = (Bitboard{1} << static_cast<int>(s));
+
+    Bitboard PlusMask = pieces_[attackingSideColour][ROOK] | pieces_[attackingSideColour][QUEEN];
+    Bitboard CrossMask = pieces_[attackingSideColour][BISHOP] | pieces_[attackingSideColour][QUEEN];
+
+    Bitboard Blockers = occupancyAll_ & (~pieces_[~attackingSideColour][KING]);
+
+    auto check_dir = [Blockers, BB_Sqr]<bool positive>(int dir, int limit, Bitboard mask){
+        int t = dir;
+        while (limit--){
+            Bitboard cur = positive ? BB_Sqr << t : BB_Sqr >> t;
+            if (cur & mask){return true;}
+            if (cur & Blockers){return false;}
+            t += dir;
+        }
+        return false;
+    };
+
+    if (check_dir.operator()<true>(8, 7-rank, PlusMask)){return true;}
+    if (check_dir.operator()<false>(8, rank, PlusMask)){return true;}
+    if (check_dir.operator()<true>(1, 7-file, PlusMask)){return true;}
+    if (check_dir.operator()<false>(1, file, PlusMask)){return true;}
+
+    if (check_dir.operator()<true>(9, std::min(7-rank, 7-file), CrossMask)){return true;}
+    if (check_dir.operator()<false>(9, std::min(rank, file), CrossMask)){return true;}
+    if (check_dir.operator()<true>(7, std::min(7-rank, file), CrossMask)){return true;}
+    if (check_dir.operator()<false>(7, std::min(rank, 7-file), CrossMask)){return true;}
+
+    const Bitboard oppKnight = pieces_[attackingSideColour][KNIGHT];
+    auto check = [oppKnight](Bitboard square, bool fileCheck){return static_cast<bool>(square & oppKnight) && fileCheck;};
+
+    if (check(BB_Sqr << 17, file < 7)){return true;}
+    if (check(BB_Sqr << 15, file > 0)){return true;}
+    if (check(BB_Sqr << 10, file < 6)){return true;}
+    if (check(BB_Sqr <<  6, file > 1)){return true;}
+    if (check(BB_Sqr >> 17, file > 0)){return true;}
+    if (check(BB_Sqr >> 15, file < 7)){return true;}
+    if (check(BB_Sqr >> 10, file > 1)){return true;}
+    if (check(BB_Sqr >>  6, file < 6)){return true;}
+
+    const Bitboard pawns = pieces_[attackingSideColour][PAWN];
+    const Bitboard oppPawn = attackingSideColour == WHITE ?
+        ((pawns & ~BB_FILE_A) << 7) | ((pawns & ~BB_FILE_H) << 9):
+        ((pawns & ~BB_FILE_A) >> 9) | ((pawns & ~BB_FILE_H) >> 7);
+
+    if (oppPawn & BB_Sqr){return true;}
+
+    const Bitboard oppKing = pieces_[attackingSideColour][KING];
+    const Bitboard oppKingHor = ((oppKing & ~BB_FILE_H) << 1) | ((oppKing & ~BB_FILE_A) >> 1) | oppKing;
+    const Bitboard oppKingAll = ((oppKingHor << 8) | (oppKingHor >> 8) | oppKingHor);
+
+    return (oppKingAll & BB_Sqr);
 }
 
 Square Board::enPassantSquare() const {

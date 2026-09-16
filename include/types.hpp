@@ -151,9 +151,9 @@ constexpr Bitboard squareBit(Square sq) {
 }
 
 constexpr Colour getColour(Piece p){
-    return static_cast<Colour>(p/NUM_PIECE_TYPE);
+    return static_cast<Colour>(static_cast<int>(p)/static_cast<int>(NUM_PIECE_TYPE));
 }
 
 constexpr PieceType getPieceType(Piece p){
-    return static_cast<PieceType>(p%NUM_PIECE_TYPE);
+    return static_cast<PieceType>(static_cast<int>(p)%static_cast<int>(NUM_PIECE_TYPE));
 }
