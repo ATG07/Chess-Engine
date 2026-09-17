@@ -68,6 +68,7 @@ void Board::updateOccupancy() {
     occupancyAll_ = occupancy_[WHITE] | occupancy_[BLACK];
 }
 
+// sideToMove REPEATEDLY BRANCHES, TRY AND EXPLICITLY USE CONSTEXPR
 void Board::generatePawnMoves(MoveList& moves) const {
     constexpr Bitboard BB_NOT_FINAL_RANK = ~BB_RANK_8 & ~BB_RANK_1;
     Bitboard single_move = (sideToMove_ == WHITE) ?
@@ -92,7 +93,7 @@ void Board::generatePawnMoves(MoveList& moves) const {
     const int forward = sideToMove_ == WHITE ? 8 : -8;
     constexpr Bitboard promotionRank = (BB_RANK_8 | BB_RANK_1);
 
-    auto emit = [&]<MoveType type>(Bitboard destinations, int offset) {
+    auto addMove = [&]<MoveType type>(Bitboard destinations, int offset) {
         while (destinations) {
             const Square to = static_cast<Square>(std::countr_zero(destinations));
             const Square from = static_cast<Square>(static_cast<int>(to) - offset);
@@ -108,15 +109,15 @@ void Board::generatePawnMoves(MoveList& moves) const {
         }
     };
 
-    auto emitPawns = [&](Bitboard destinations, int offset) {
-        emit.operator()<NORMAL>(destinations & ~promotionRank, offset);
-        emit.operator()<PROMOTION>(destinations & promotionRank, offset);
+    auto splitPromotion = [&](Bitboard destinations, int offset) {
+        addMove.operator()<NORMAL>(destinations & ~promotionRank, offset);
+        addMove.operator()<PROMOTION>(destinations & promotionRank, offset);
     };
 
-    emitPawns(single_move, forward);
-    emit.operator()<NORMAL>(double_move, 2 * forward);
-    emitPawns(left_capture, sideToMove_ == WHITE ? 7 : -9);
-    emitPawns(right_capture, sideToMove_ == WHITE ? 9 : -7);
+    splitPromotion(single_move, forward);
+    addMove.operator()<NORMAL>(double_move, 2 * forward);
+    splitPromotion(left_capture, sideToMove_ == WHITE ? 7 : -9);
+    splitPromotion(right_capture, sideToMove_ == WHITE ? 9 : -7);
 
     if (hasEnPassant()) {
         const Square to = enPassantSquare();
@@ -254,8 +255,71 @@ void Board::generateQueenMoves(MoveList& moves) const {
     }
 }
 
-void Board::generateKingMoves(MoveList&) const {
+void Board::generateKingMoves(MoveList& moves) const {
+    // Normal 8 moves
 
+    const Bitboard cur = pieces_[sideToMove_][KING];
+    const Square s1 = static_cast<Square>(std::countr_zero(cur));
+    const Bitboard hor = ((cur&~BB_FILE_A) >> 1) | ((cur&~BB_FILE_H) << 1);
+    Bitboard to = (hor << 8) | (hor >> 8) | hor | (cur >> 8) | (cur << 8);
+    to &= ~occupancy_[sideToMove_];
+
+    while (to){
+        Square s2 = static_cast<Square>(std::countr_zero(to));
+        to = to & (to - 1);
+
+        if (!isSquareAttacked(s2, ~sideToMove_)){
+            moves.add(encodeMove(s1, s2));
+        }
+    }
+
+    // Castling
+    std::uint8_t mask = sideToMove_ == WHITE ? 1 : (1 << 2);
+
+    if (state_ & mask){     // KINGSIDE castling
+        auto areSquaresEmpty = [&]{
+            const Bitboard emptySquares = Bitboard{3} << (sideToMove_ == WHITE ? 5 : 5 + 8 * 7);
+            return !static_cast<bool>(occupancyAll_ & emptySquares);
+        };
+
+        auto noAttacks = [&](){
+            return  (!isSquareAttacked(s1, ~sideToMove_)) &&
+                    (!isSquareAttacked(static_cast<Square>(static_cast<int>(s1) + 1), ~sideToMove_)) &&
+                    (!isSquareAttacked(static_cast<Square>(static_cast<int>(s1) + 2), ~sideToMove_));
+        };
+
+        if (areSquaresEmpty() && noAttacks()){
+            moves.add(encodeMove(
+                s1,
+                static_cast<Square>(static_cast<int>(s1) + 3),
+                CASTLING    
+            ));
+        }
+    }
+
+    mask <<= 1;
+
+    if (state_ & mask){    //QUEENSIDE castling
+        
+        auto areSquaresEmpty = [&]{
+            const Bitboard emptySquares = Bitboard{7} << (sideToMove_ == WHITE ? 1 : 1 + 8 * 7);
+            return !static_cast<bool>(occupancyAll_ & emptySquares);
+        };
+
+        auto noAttacks = [&](){
+            return  (!isSquareAttacked(s1, ~sideToMove_)) &&
+                    (!isSquareAttacked(static_cast<Square>(static_cast<int>(s1) - 1), ~sideToMove_)) &&
+                    (!isSquareAttacked(static_cast<Square>(static_cast<int>(s1) - 2), ~sideToMove_));
+        };
+
+        if (areSquaresEmpty() && noAttacks()){
+            moves.add(encodeMove(
+                s1,
+                static_cast<Square>(static_cast<int>(s1) - 4),
+                CASTLING
+            ));
+        }
+    }
 }
 
 void Board::setStartingPosition() {
@@ -432,7 +496,9 @@ bool Board::inCheck() const {
 // IGNORES DEFENDING KING AS DEFENDING KING IS NEVER AN EFFECTIVE BLOCKER
 // CAN BE REFACTORED LATOR, OR TAKEN IN THROUGH A TEMPLATE IF REQUIRED
 // IGNORES EN PASSANT
-// UNDEFINED BEHAVIOUR WHEN SQUARE IS OCCUPIED BY ATTACKING SIDE PIECE
+// UNDEFINED BEHAVIOUR WHEN SQUARE IS OCCUPIED BY ATTACKING SIDE KING
+// MAYBE SHOULD CHANGE attackingSideColour TO TEMPLATED INTERNAL HELPER INSTEAD OF RUNTIME PARAMETER
+// PROBABLY NOT TOO MUCH OF AN OPTIMISATION
 bool Board::isSquareAttacked(Square s, Colour attackingSideColour) const {
     int file = static_cast<int>(s) % NUM_FILE;
     int rank = static_cast<int>(s) / NUM_FILE;
@@ -443,10 +509,14 @@ bool Board::isSquareAttacked(Square s, Colour attackingSideColour) const {
 
     Bitboard Blockers = occupancyAll_ & (~pieces_[~attackingSideColour][KING]);
 
+    //MAYBE dir COULD ALSO BE MAKE INTO A TEMPLATE ARGUMENT
     auto check_dir = [Blockers, BB_Sqr]<bool positive>(int dir, int limit, Bitboard mask){
         int t = dir;
         while (limit--){
-            Bitboard cur = positive ? BB_Sqr << t : BB_Sqr >> t;
+            const Bitboard cur = [&]{
+                if constexpr (positive) {return BB_Sqr << t;}
+                else                    {return BB_Sqr >> t;}
+            }();
             if (cur & mask){return true;}
             if (cur & Blockers){return false;}
             t += dir;
