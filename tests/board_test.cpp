@@ -1,4 +1,5 @@
 #include "board.hpp"
+#include "zobrist.hpp"
 
 #include <gtest/gtest.h>
 
@@ -62,6 +63,16 @@ void expectSameState(const PublicBoardState& expected, const Board& actual) {
     EXPECT_EQ(observed.halfmoveClock, expected.halfmoveClock);
     EXPECT_EQ(observed.fullmoveNumber, expected.fullmoveNumber);
     EXPECT_EQ(observed.hash, expected.hash);
+}
+
+void expectPins(
+    const Board& board,
+    Colour kingColour,
+    Bitboard pinned = 0,
+    Bitboard pinners = 0) {
+    EXPECT_EQ(board.blockersForKing(kingColour), pinned);
+    EXPECT_EQ(board.pinnedToKing(kingColour), pinned);
+    EXPECT_EQ(board.pinners(~kingColour), pinners);
 }
 
 }  // namespace
@@ -180,6 +191,87 @@ TEST(BoardTest, SettingFenReplacesThePreviousPosition) {
     EXPECT_EQ(board.fullmoveNumber(), 9);
 }
 
+TEST(BoardHashTest, FenHashDistinguishesSideToMove) {
+    Board white, black;
+    white.setFEN("4k3/8/8/8/8/8/8/4K3 w - - 0 1");
+    black.setFEN("4k3/8/8/8/8/8/8/4K3 b - - 0 1");
+
+    EXPECT_EQ(white.hash() ^ black.hash(), Zobrist::side);
+}
+
+TEST(BoardHashTest, FenHashDistinguishesCastlingRights) {
+    Board both, kingside, neither;
+    both.setFEN("4k3/8/8/8/8/8/8/R3K2R w KQ - 0 1");
+    kingside.setFEN("4k3/8/8/8/8/8/8/R3K2R w K - 0 1");
+    neither.setFEN("4k3/8/8/8/8/8/8/R3K2R w - - 0 1");
+
+    EXPECT_EQ(both.hash() ^ neither.hash(),
+              Zobrist::castling[WHITE_KINGSIDE | WHITE_QUEENSIDE] ^
+                  Zobrist::castling[0]);
+    EXPECT_EQ(kingside.hash() ^ neither.hash(),
+              Zobrist::castling[WHITE_KINGSIDE] ^ Zobrist::castling[0]);
+}
+
+TEST(BoardHashTest, FenHashDistinguishesEnPassantFilesAndAbsence) {
+    Board none, fileD, fileF;
+    none.setFEN("4k3/8/8/3pPp2/8/8/8/4K3 w - - 0 1");
+    fileD.setFEN("4k3/8/8/3pPp2/8/8/8/4K3 w - d6 0 1");
+    fileF.setFEN("4k3/8/8/3pPp2/8/8/8/4K3 w - f6 0 1");
+
+    EXPECT_EQ(none.hash() ^ fileD.hash(), Zobrist::enpassant[FILE_D]);
+    EXPECT_EQ(none.hash() ^ fileF.hash(), Zobrist::enpassant[FILE_F]);
+}
+
+TEST(BoardHashTest, ReloadingFenReplacesHashAndIgnoresMoveCounters) {
+    Board reused, fresh;
+    reused.setStartingPosition();
+    reused.setFEN("4k3/8/8/3pP3/8/8/8/4K3 w - d6 0 42");
+    fresh.setFEN("4k3/8/8/3pP3/8/8/8/4K3 w - d6 19 90");
+
+    EXPECT_EQ(reused.hash(), fresh.hash());
+}
+
+TEST(BoardHashTest, IncrementalMoveHashMatchesResultingFenWithoutUndo) {
+    struct Transition {
+        std::string_view before;
+        Move move;
+        std::string_view after;
+    };
+    const Transition transitions[] = {
+        {STARTING_FEN, encodeMove(E2, E4),
+         "rnbqkbnr/pppppppp/8/8/4P3/8/PPPP1PPP/RNBQKBNR b KQkq e3 0 1"},
+        {"rnbqkbnr/pppppppp/8/8/4P3/8/PPPP1PPP/RNBQKBNR b KQkq e3 0 1",
+         encodeMove(D7, D5),
+         "rnbqkbnr/ppp1pppp/8/3p4/4P3/8/PPPP1PPP/RNBQKBNR w KQkq d6 0 2"},
+        {"4k3/8/8/3pP3/8/8/8/4K3 w - d6 0 1", encodeMove(E1, D1),
+         "4k3/8/8/3pP3/8/8/8/3K4 b - - 1 1"},
+        {"4k3/8/8/3pP3/8/8/8/4K3 w - d6 0 1", encodeMove(E5, D6, EN_PASSANT),
+         "4k3/8/3P4/8/8/8/8/4K3 b - - 0 1"},
+        {"4k3/8/8/8/3Pp3/8/8/4K3 b - d3 0 1", encodeMove(E4, D3, EN_PASSANT),
+         "4k3/8/8/8/8/3p4/8/4K3 w - - 0 2"},
+        {"r3k2r/8/8/8/8/8/8/R3K2R w KQkq - 8 1", encodeMove(E1, H1, CASTLING),
+         "r3k2r/8/8/8/8/8/8/R4RK1 b kq - 9 1"},
+        {"r3k2r/8/8/8/8/8/8/R3K2R b KQkq - 8 1", encodeMove(E8, A8, CASTLING),
+         "2kr3r/8/8/8/8/8/8/R3K2R w KQ - 9 2"},
+        {"r3k2r/6B1/8/8/8/8/8/R3K2R w KQkq - 5 9", encodeMove(G7, H8),
+         "r3k2B/8/8/8/8/8/8/R3K2R b KQq - 0 9"},
+        {"4k2r/6P1/8/8/8/8/8/4K3 w k - 12 8", encodeMove(G7, H8, PROMOTION, QUEEN),
+         "4k2Q/8/8/8/8/8/8/4K3 b - - 0 8"},
+        {"7k/8/8/8/8/8/p7/7K b - - 4 7", encodeMove(A2, A1, PROMOTION, KNIGHT),
+         "7k/8/8/8/8/8/8/n6K w - - 0 8"},
+    };
+
+    for (const auto& transition : transitions) {
+        SCOPED_TRACE(transition.before);
+        Board actual, expected;
+        actual.setFEN(transition.before);
+        expected.setFEN(transition.after);
+        actual.makeMove(transition.move);
+
+        EXPECT_EQ(actual.hash(), expected.hash());
+    }
+}
+
 TEST(BoardTest, AttackDetectionHandlesLeapersAndSliders) {
     Board board;
     board.setFEN("4k3/8/2n5/3p4/8/8/4r3/4K3 w - - 0 1");
@@ -187,7 +279,8 @@ TEST(BoardTest, AttackDetectionHandlesLeapersAndSliders) {
     EXPECT_TRUE(board.isSquareAttacked(E1, BLACK));  // rook
     EXPECT_TRUE(board.isSquareAttacked(E4, BLACK));  // pawn from d5
     EXPECT_TRUE(board.isSquareAttacked(E5, BLACK));  // knight from c6
-    EXPECT_FALSE(board.isSquareAttacked(D4, BLACK));
+    EXPECT_TRUE(board.isSquareAttacked(D4, BLACK));  // knight from c6
+    EXPECT_FALSE(board.isSquareAttacked(A4, BLACK));
     EXPECT_TRUE(board.inCheck());
 }
 
@@ -239,6 +332,122 @@ TEST(BoardAttackTest, TreatsDefendingKingAsTransparentAsDocumented) {
     EXPECT_TRUE(board.isSquareAttacked(E1, BLACK));
 }
 
+TEST(BoardPinsAttackersTest, StartingPositionHasNoPinsOrCheckers) {
+    Board board;
+    board.setStartingPosition();
+    board.setPinsAttackers();
+
+    EXPECT_EQ(board.checkers(), 0);
+    expectPins(board, WHITE);
+}
+
+TEST(BoardPinsAttackersTest, FindsPinsOnAllFourSliderLines) {
+    Board board;
+    board.setFEN(
+        "k2r3b/b7/8/2RBN3/3KN2r/8/8/8 w - - 0 1");
+    board.setPinsAttackers();
+
+    EXPECT_EQ(board.checkers(), 0);
+    expectPins(board, WHITE,
+               squareBit(E4) | squareBit(D5) |
+                   squareBit(C5) | squareBit(E5),
+               squareBit(H4) | squareBit(D8) |
+                   squareBit(A7) | squareBit(H8));
+}
+
+TEST(BoardPinsAttackersTest, IdentifiesEveryDirectCheckerType) {
+    struct Case {
+        std::string_view fen;
+        Square checker;
+    };
+
+    constexpr Case cases[] = {
+        {"k3r3/8/8/8/8/8/8/4K3 w - - 0 1", E8},
+        {"k7/8/8/8/1b6/8/8/4K3 w - - 0 1", B4},
+        {"k7/8/8/8/8/8/2n5/4K3 w - - 0 1", C2},
+        {"k7/8/8/8/8/8/3p4/4K3 w - - 0 1", D2},
+    };
+
+    for (const auto& test : cases) {
+        SCOPED_TRACE(test.fen);
+        Board board;
+        board.setFEN(test.fen);
+        board.setPinsAttackers();
+
+        EXPECT_EQ(board.checkers(), squareBit(test.checker));
+        expectPins(board, WHITE);
+    }
+}
+
+TEST(BoardPinsAttackersTest, RecordsBothPiecesInDoubleCheck) {
+    Board board;
+    board.setFEN("k3r3/8/8/8/1b6/8/8/4K3 w - - 0 1");
+    board.setPinsAttackers();
+
+    EXPECT_EQ(board.checkers(), squareBit(E8) | squareBit(B4));
+    expectPins(board, WHITE);
+}
+
+TEST(BoardPinsAttackersTest, TwoPawnsCanCheckTheSameKing) {
+    Board board;
+    board.setFEN("k7/8/8/3p1p2/4K3/8/8/8 w - - 0 1");
+    board.setPinsAttackers();
+
+    EXPECT_EQ(board.checkers(), squareBit(D5) | squareBit(F5));
+    expectPins(board, WHITE);
+}
+
+TEST(BoardPinsAttackersTest, TwoBlockersAndWrongSliderDoNotCreatePins) {
+    Board board;
+    board.setFEN("k3r3/8/8/8/8/4B3/4N3/4K3 w - - 0 1");
+    board.setPinsAttackers();
+
+    EXPECT_EQ(board.checkers(), 0);
+    expectPins(board, WHITE);
+
+    board.setFEN("k3r3/8/8/8/8/8/4n3/4K3 w - - 0 1");
+    board.setPinsAttackers();
+
+    EXPECT_EQ(board.checkers(), 0);
+    EXPECT_EQ(board.blockersForKing(WHITE), squareBit(E2));
+    EXPECT_EQ(board.pinnedToKing(WHITE), 0);
+    EXPECT_EQ(board.pinners(BLACK), 0);
+
+    board.setFEN("k3b3/8/8/8/8/8/4N3/4K3 w - - 0 1");
+    board.setPinsAttackers();
+
+    EXPECT_EQ(board.checkers(), 0);
+    expectPins(board, WHITE);
+}
+
+TEST(BoardPinsAttackersTest, HandlesEdgeRayAndBlackSidePins) {
+    Board board;
+    board.setFEN("7b/8/8/8/8/8/1N6/K6k w - - 0 1");
+    board.setPinsAttackers();
+
+    EXPECT_EQ(board.checkers(), 0);
+    expectPins(board, WHITE, squareBit(B2), squareBit(H8));
+
+    board.setFEN("4k3/4n3/8/8/8/8/8/K3R3 b - - 0 1");
+    board.setPinsAttackers();
+
+    EXPECT_EQ(board.checkers(), 0);
+    expectPins(board, BLACK, squareBit(E7), squareBit(E1));
+}
+
+TEST(BoardPinsAttackersTest, RecalculationClearsStalePinsAndCheckers) {
+    Board board;
+    board.setFEN("k3r3/8/8/8/8/8/4N3/4K3 w - - 0 1");
+    board.setPinsAttackers();
+    ASSERT_EQ(board.pinnedToKing(WHITE), squareBit(E2));
+
+    board.setFEN("k7/8/8/8/8/8/8/4K3 w - - 0 1");
+    board.setPinsAttackers();
+
+    EXPECT_EQ(board.checkers(), 0);
+    expectPins(board, WHITE);
+}
+
 TEST(BoardTest, EveryGeneratedStartingMoveCanBeUndoneExactly) {
     Board board;
     board.setStartingPosition();
@@ -255,7 +464,7 @@ TEST(BoardTest, EveryGeneratedStartingMoveCanBeUndoneExactly) {
         EXPECT_NE(board.pieceAt(moveFrom(move)), NO_PIECE);
         EXPECT_EQ(board.pieceAt(moveTo(move)), NO_PIECE);
         board.makeMove(move);
-        board.undoMove(move);
+        board.undoMove();
         expectSameState(initial, board);
     }
 }
@@ -282,7 +491,7 @@ TEST(BoardTest, DoublePawnPushUpdatesTurnAndEnPassantState) {
     EXPECT_EQ(board.enPassantSquare(), E3);
     EXPECT_EQ(board.halfmoveClock(), 0);
     EXPECT_EQ(board.fullmoveNumber(), 1);
-    board.undoMove(e2e4);
+    board.undoMove();
     expectSameState(initial, board);
 }
 
@@ -323,7 +532,7 @@ TEST(BoardTest, CannotCastleThroughAnAttackedSquare) {
     board.makeMove(queenside);
     EXPECT_EQ(board.pieceAt(C1), W_KING);
     EXPECT_EQ(board.pieceAt(D1), W_ROOK);
-    board.undoMove(queenside);
+    board.undoMove();
 }
 
 TEST(BoardTest, GeneratesAllFourPromotionChoices) {
@@ -343,7 +552,7 @@ TEST(BoardTest, GeneratesAllFourPromotionChoices) {
         board.makeMove(promotion);
         EXPECT_EQ(board.pieceAt(A7), NO_PIECE);
         EXPECT_EQ(board.pieceAt(A8), static_cast<Piece>(piece));
-        board.undoMove(promotion);
+        board.undoMove();
         EXPECT_EQ(board.pieceAt(A7), W_PAWN);
     }
 }
@@ -358,6 +567,6 @@ TEST(BoardTest, HashTracksPositionAndIsRestoredByUndo) {
     ASSERT_GT(moves.size, 0);
     board.makeMove(moves[0]);
     EXPECT_NE(board.hash(), startingHash);
-    board.undoMove(moves[0]);
+    board.undoMove();
     EXPECT_EQ(board.hash(), startingHash);
 }

@@ -30,7 +30,7 @@ std::uint64_t perft(Board& board, int depth) {
     for (const Move move : moves) {
         board.makeMove(move);
         nodes += perft(board, depth - 1);
-        board.undoMove(move);
+        board.undoMove();
     }
     return nodes;
 }

@@ -7,12 +7,11 @@
 #include <cstdint>
 #include <ranges>
 #include <string_view>
+#include <vector>
 
 constexpr int MAX_MOVES = 256;
 
 // MAX IS 218 FOR LEGALLY REACHABLE POSITION BUT THEORETICALLY COULD BE 267
-
-constexpr int MAX_PLY = 256;
 
 constexpr std::string_view STARTING_FEN = "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1";
 
@@ -62,6 +61,7 @@ constexpr PackedState makePackedState(
 }
 
 struct UndoState {
+    Move move = 0;
     Piece capturedPiece = NO_PIECE;
     PackedState state = 0;
     std::uint16_t halfmoveClock = 0;
@@ -118,10 +118,9 @@ private:
 
     std::array<Piece, NUM_SQUARE> board_{}; // mailbox
 
-    // Cached for each position, as in Stockfish's king-blocker/check state.
-    // A blocker may be either colour; pinned pieces are blockersForKing_[c] & occupancy_[c].
     Bitboard blockersForKing_[NUM_COLOUR]{};
     Bitboard pinners_[NUM_COLOUR]{};
+
     Bitboard checkers_ = 0; // attackers of sideToMove_'s king
 
     Colour sideToMove_ = WHITE;
@@ -133,8 +132,7 @@ private:
 
     std::uint64_t zobristKey_ = 0;
 
-    std::array<UndoState, MAX_PLY> history_{};
-    int ply_ = 0;
+    std::vector<UndoState> history_;
 
     void addPiece(Piece piece, Square sq);
     void removePiece(Piece piece, Square sq);
@@ -142,13 +140,14 @@ private:
 
     void updateOccupancy();
     void updateSliderBlockers(Colour colour);
-    bool legalCandidate(Move move) const;
+    bool followsPin(Square from, Square to) const;
+    bool legalEnPassant(Square from, Square to) const;
 
-    void generatePawnMoves(MoveList& moves) const;
-    void generateKnightMoves(MoveList& moves) const;
-    void generateBishopMoves(MoveList& moves) const;
-    void generateRookMoves(MoveList& moves) const;
-    void generateQueenMoves(MoveList& moves) const;
+    void generatePawnMoves(MoveList& moves, Bitboard targets) const;
+    void generateKnightMoves(MoveList& moves, Bitboard targets) const;
+    void generateBishopMoves(MoveList& moves, Bitboard targets) const;
+    void generateRookMoves(MoveList& moves, Bitboard targets) const;
+    void generateQueenMoves(MoveList& moves, Bitboard targets) const;
     void generateKingMoves(MoveList& moves) const;
 
 public:
@@ -157,15 +156,31 @@ public:
     void setStartingPosition();
     void setFEN(std::string_view fen);
 
-    void setPins();
+    void setPinsAttackers();
 
     void generateMoves(MoveList& moves) const;
 
     void makeMove(Move move);
-    void undoMove(Move move);
+    void undoMove();
 
     bool inCheck() const;
     bool isSquareAttacked(Square sq, Colour by) const;
+
+    Bitboard blockersForKing(Colour kingColour) const {
+        return blockersForKing_[kingColour];
+    }
+
+    Bitboard pinnedToKing(Colour kingColour) const {
+        return blockersForKing_[kingColour] & occupancy_[kingColour];
+    }
+
+    Bitboard pinners(Colour pinnerColour) const {
+        return pinners_[pinnerColour];
+    }
+
+    Bitboard checkers() const {
+        return checkers_;
+    }
 
     Piece pieceAt(Square sq) const {
         return board_[sq];
